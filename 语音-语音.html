@@ -1,0 +1,762 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>智能点餐助手（含期望 & 满意度 & 表现弹窗）</title>
+  <style>
+    /* 基本样式（简洁） */
+    body{
+      font-family: Arial, "Noto Sans SC", "Microsoft Yahei", sans-serif;
+      background:#f7f7fb;
+      margin:0;
+      padding:0;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      height:100vh
+    }
+    #chat-container{
+      width:360px;
+      background:#fff;
+      border-radius:10px;
+      box-shadow:0 6px 20px rgba(0,0,0,.08);
+      display:flex;
+      flex-direction:column;
+      overflow:hidden
+    }
+    #chat-header{
+      padding:12px 16px;
+      background:linear-gradient(90deg,#4f8ef7,#6ad1ff);
+      color:#fff;
+      font-weight:600
+    }
+    #chat-log{
+      height:420px;
+      padding:12px;
+      overflow:auto;
+      background:#f2f6fb
+    }
+    .msg-wrapper{
+      display:flex;
+      gap:8px;
+      margin:8px 0;
+      align-items:flex-end
+    }
+    .msg-wrapper.user{
+      justify-content:flex-end
+    }
+    .avatar{
+      width:36px;
+      height:36px;
+      border-radius:50%;
+      background:#d9e8ff;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:18px;
+      color:#225
+    }
+    .avatar.bot{
+      background:#3a7ef6;
+      color:#fff
+    }
+    .bubble{
+      max-width:70%;
+      padding:8px 10px;
+      border-radius:10px;
+      line-height:1.4
+    }
+    .bubble.bot{
+      background:#fff;
+      border:1px solid #e1edf9
+    }
+    .bubble.user{
+      background:#3a7ef6;
+      color:#fff;
+      border-radius:12px
+    }
+    #input-area{
+      display:flex;
+      padding:8px;
+      border-top:1px solid #eee;
+      background:#fff
+    }
+    #user-input{
+      flex:1;
+      padding:8px;
+      border-radius:6px;
+      border:1px solid #ddd;
+      outline:none
+    }
+    #mic-btn,#send-btn{
+      margin-left:6px;
+      padding:8px 10px;
+      border-radius:6px;
+      border:none;
+      background:#4f8ef7;
+      color:#fff;
+      cursor:pointer
+    }
+    #mic-btn[disabled],#send-btn[disabled]{
+      opacity:.5;
+      cursor:default
+    }
+
+    /* 模态：期望 / 满意度 / 表现 */
+    .modal-backdrop{
+      position:fixed;
+      left:0;
+      top:0;
+      right:0;
+      bottom:0;
+      background:rgba(0,0,0,.35);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:999
+    }
+    .modal{
+      width:320px;
+      background:#fff;
+      border-radius:10px;
+      padding:14px;
+      box-shadow:0 8px 30px rgba(0,0,0,.2)
+    }
+    .modal h3{
+      margin:0 0 8px;
+      font-size:16px
+    }
+    .modal .actions{
+      display:flex;
+      gap:8px;
+      justify-content:flex-end;
+      margin-top:10px
+    }
+    .rating-row{
+      display:flex;
+      gap:8px;
+      justify-content:center;
+      margin:8px 0 12px
+    }
+    .rating-btn{
+      width:32px;
+      height:32px;
+      border-radius:6px;
+      border:1px solid #ddd;
+      background:#f7f7fb;
+      cursor:pointer;
+      font-weight:700;
+      font-size:14px;
+    }
+    .rating-btn.selected{
+      background:#4f8ef7;
+      color:#fff;
+      border-color:transparent
+    }
+
+    /* 小提示文本 */
+    .muted{
+      font-size:12px;
+      color:#777;
+      margin-top:6px
+    }
+
+    /* 三题块 */
+    .expect-q{
+      margin-top:4px;
+      font-size:14px;
+      font-weight:500;
+    }
+  </style>
+</head>
+<body>
+
+<div id="chat-container">
+  <div id="chat-header">智能点餐助手</div>
+  <div id="chat-log"></div>
+  <div id="input-area">
+    <input type="text" id="user-input" placeholder="请按 🎤 说话..." />
+    <button id="mic-btn">🎤</button>
+    <button id="send-btn">➤</button>
+  </div>
+</div>
+
+<!-- 期望打分弹窗：3题 -->
+<div id="expectation-modal" class="modal-backdrop" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="服务期望">
+    <h3>请评价您对本次点餐助手的预期</h3>
+
+    <div class="expect-q">1. 您预期点餐助手能多么理解您的需求？</div>
+    <div class="rating-row" id="expectation-rating-row-1">
+      <button class="rating-btn" data-score="1">1</button>
+      <button class="rating-btn" data-score="2">2</button>
+      <button class="rating-btn" data-score="3">3</button>
+      <button class="rating-btn" data-score="4">4</button>
+      <button class="rating-btn" data-score="5">5</button>
+      <button class="rating-btn" data-score="6">6</button>
+      <button class="rating-btn" data-score="7">7</button>
+    </div>
+
+    <div class="expect-q">2. 您预期点餐助手有多可靠？</div>
+    <div class="rating-row" id="expectation-rating-row-2">
+      <button class="rating-btn" data-score="1">1</button>
+      <button class="rating-btn" data-score="2">2</button>
+      <button class="rating-btn" data-score="3">3</button>
+      <button class="rating-btn" data-score="4">4</button>
+      <button class="rating-btn" data-score="5">5</button>
+      <button class="rating-btn" data-score="6">6</button>
+      <button class="rating-btn" data-score="7">7</button>
+    </div>
+
+    <div class="expect-q">3. 您预期点餐助手推荐的内容有多么符合您的偏好？</div>
+    <div class="rating-row" id="expectation-rating-row-3">
+      <button class="rating-btn" data-score="1">1</button>
+      <button class="rating-btn" data-score="2">2</button>
+      <button class="rating-btn" data-score="3">3</button>
+      <button class="rating-btn" data-score="4">4</button>
+      <button class="rating-btn" data-score="5">5</button>
+      <button class="rating-btn" data-score="6">6</button>
+      <button class="rating-btn" data-score="7">7</button>
+    </div>
+
+    <div class="muted">1 = 预期很低，7 = 预期很高</div>
+    <div class="actions">
+      <button id="expectation-submit" style="background:#4f8ef7;color:#fff;border:none;padding:8px 10px;border-radius:6px">提交</button>
+    </div>
+  </div>
+</div>
+
+<!-- 满意度评分弹窗 -->
+<div id="rating-modal" class="modal-backdrop" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="满意度评分">
+    <h3>请为本次服务打分</h3>
+    <div class="rating-row" id="rating-row">
+      <button class="rating-btn" data-score="1">1</button>
+      <button class="rating-btn" data-score="2">2</button>
+      <button class="rating-btn" data-score="3">3</button>
+      <button class="rating-btn" data-score="4">4</button>
+      <button class="rating-btn" data-score="5">5</button>
+      <button class="rating-btn" data-score="6">6</button>
+      <button class="rating-btn" data-score="7">7</button>
+    </div>
+    <div class="muted">1 = 一点都不满意，7 = 非常满意</div>
+    <div class="actions" style="margin-top:10px">
+      <button id="rating-submit" style="background:#4f8ef7;color:#fff;border:none;padding:8px 10px;border-radius:6px">提交评分</button>
+    </div>
+  </div>
+</div>
+
+<!-- 服务表现弹窗：3题（事后感知） -->
+<div id="performance-modal" class="modal-backdrop" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="服务表现评价">
+    <h3>请评价本次点餐助手的实际表现</h3>
+
+    <div class="expect-q">1. 您认为该点餐助手有多么理解您的需求？</div>
+    <div class="rating-row" id="performance-rating-row-1">
+      <button class="rating-btn" data-score="1">1</button>
+      <button class="rating-btn" data-score="2">2</button>
+      <button class="rating-btn" data-score="3">3</button>
+      <button class="rating-btn" data-score="4">4</button>
+      <button class="rating-btn" data-score="5">5</button>
+      <button class="rating-btn" data-score="6">6</button>
+      <button class="rating-btn" data-score="7">7</button>
+    </div>
+
+    <div class="expect-q">2. 您认为该点餐助手有多可靠？</div>
+    <div class="rating-row" id="performance-rating-row-2">
+      <button class="rating-btn" data-score="1">1</button>
+      <button class="rating-btn" data-score="2">2</button>
+      <button class="rating-btn" data-score="3">3</button>
+      <button class="rating-btn" data-score="4">4</button>
+      <button class="rating-btn" data-score="5">5</button>
+      <button class="rating-btn" data-score="6">6</button>
+      <button class="rating-btn" data-score="7">7</button>
+    </div>
+
+    <div class="expect-q">3. 您认为该点餐助手推荐的内容有多么符合您的偏好？</div>
+    <div class="rating-row" id="performance-rating-row-3">
+      <button class="rating-btn" data-score="1">1</button>
+      <button class="rating-btn" data-score="2">2</button>
+      <button class="rating-btn" data-score="3">3</button>
+      <button class="rating-btn" data-score="4">4</button>
+      <button class="rating-btn" data-score="5">5</button>
+      <button class="rating-btn" data-score="6">6</button>
+      <button class="rating-btn" data-score="7">7</button>
+    </div>
+
+    <div class="muted">1 = 一点都不，7 = 非常</div>
+    <div class="actions">
+      <button id="performance-submit" style="background:#4f8ef7;color:#fff;border:none;padding:8px 10px;border-radius:6px">提交</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ======================== 原始逻辑（做了必要调整） ======================== */
+
+// 0) 替换为你的 Formspree 端点
+const FORM_ENDPOINT = 'https://formspree.io/f/mpwjlwbk';
+
+// DOM
+const chatLog  = document.getElementById('chat-log');
+const userInput= document.getElementById('user-input');
+const micBtn   = document.getElementById('mic-btn');
+const sendBtn  = document.getElementById('send-btn');
+
+const expectationModal = document.getElementById('expectation-modal');
+const expectationSubmit= document.getElementById('expectation-submit');
+const expectationRatingRow1 = document.getElementById('expectation-rating-row-1');
+const expectationRatingRow2 = document.getElementById('expectation-rating-row-2');
+const expectationRatingRow3 = document.getElementById('expectation-rating-row-3');
+
+const ratingModal = document.getElementById('rating-modal');
+const ratingRow   = document.getElementById('rating-row');
+const ratingSubmit= document.getElementById('rating-submit');
+
+const performanceModal = document.getElementById('performance-modal');
+const performanceSubmit = document.getElementById('performance-submit');
+const performanceRatingRow1 = document.getElementById('performance-rating-row-1');
+const performanceRatingRow2 = document.getElementById('performance-rating-row-2');
+const performanceRatingRow3 = document.getElementById('performance-rating-row-3');
+
+// stages: 0 -> 首问；1 -> 询菜系；2 -> 忌口；
+// 3 -> 已收“期望”；4 -> 已收“满意度”；5 -> 已收“服务表现并结束”
+let stage = 0;
+
+// 缓冲 & 上报控制
+const userMessages = [];
+let submitted = false;
+function generateConvoId() {
+  const num = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  return 'vv' + num;
+}
+const convoId = generateConvoId();
+
+/* ---------- TTS: Web Speech API ---------- */
+const synth = window.speechSynthesis || null;
+let zhVoice = null;
+function pickZhVoice() {
+  if (!synth) return;
+  const voices = synth.getVoices();
+  if (!voices || !voices.length) return;
+  zhVoice = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh'))
+            || voices.find(v => /chinese/i.test(v.name))
+            || voices[0];
+}
+if (synth) {
+  synth.onvoiceschanged = pickZhVoice;
+  pickZhVoice();
+}
+function speakBot(text) {
+  if (!synth) return;
+  const plain = text.replace(/<[^>]+>/g, '');
+  synth.cancel();
+  const utter = new SpeechSynthesisUtterance(plain);
+  if (zhVoice) utter.voice = zhVoice;
+  utter.lang = zhVoice?.lang || 'zh-CN';
+  utter.rate = 1;
+  utter.pitch = 1;
+  synth.speak(utter);
+}
+
+/* ---------- helper: chat bubble ---------- */
+function createMsg(text, sender){
+  const wrap   = document.createElement('div');
+  wrap.className = 'msg-wrapper ' + sender;
+
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar ' + sender;
+  avatar.textContent = sender === 'bot' ? '智' : '您';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble ' + sender;
+  bubble.innerHTML = text.replace(/\n/g,'<br>');
+
+  if(sender === 'bot'){
+    wrap.appendChild(avatar);
+    wrap.appendChild(bubble);
+    speakBot(text);
+  }else{
+    wrap.appendChild(bubble);
+    wrap.appendChild(avatar);
+  }
+  chatLog.appendChild(wrap);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+/* ---------- Init ---------- */
+window.onload = ()=>{
+  createMsg('我是您的智能点餐助手，很高兴为您服务。请问需要我帮您推荐餐品吗？例如，您可以输入“推荐双人餐”。','bot');
+
+  // 禁止手动输入
+  userInput.readOnly = true;
+  userInput.addEventListener('keydown', e => e.preventDefault());
+};
+
+/* ---------- Speech Recognition ---------- */
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const recognition = SpeechRecognition ? new SpeechRecognition() : null;
+if(recognition){
+  recognition.lang = 'zh-CN';
+  recognition.continuous = false;
+}
+micBtn.onclick = () => {
+  if(!recognition){ alert('当前浏览器不支持语音识别'); return; }
+  recognition.start();
+  micBtn.textContent = '⏺';
+};
+if(recognition){
+  recognition.onresult = (e) => {
+    const transcript = e.results[0][0].transcript;
+    userInput.value = transcript;
+    micBtn.textContent = '🎤';
+  };
+  recognition.onerror = () => { micBtn.textContent = '🎤'; };
+}
+sendBtn.onclick = sendMessage;
+userInput.onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };
+
+/* ---------- 结束时一次性提交（静默）：按阶段拆列 ---------- */
+async function submitAllMessagesOnce() {
+  if (submitted) return;
+  submitted = true;
+
+  const startedAt = performance.timing?.navigationStart
+    ? new Date(performance.timing.navigationStart).toISOString()
+    : null;
+
+  const stageBuckets = {};
+  userMessages.forEach(m => {
+    const key = String(m.stage);
+    if (!stageBuckets[key]) stageBuckets[key] = [];
+    stageBuckets[key].push(m.text);
+  });
+
+  const payload = {
+    convoId,
+    path: location.pathname,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    all_messages: userMessages
+  };
+
+  Object.keys(stageBuckets)
+    .sort((a,b)=>+a-+b)
+    .forEach(stageKey => {
+      const joined = stageBuckets[stageKey].join(' | ');
+      payload[`stage${stageKey}_text`] = joined;
+    });
+
+  try {
+    const res = await fetch(FORM_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) return;
+  } catch (e) {
+    console.debug('Direct JSON submit failed (silenced):', e);
+  }
+
+  try {
+    await fetch(FORM_ENDPOINT, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  } catch (e2) {
+    console.debug('no-cors submit failed (silenced):', e2);
+  }
+}
+
+/* ---------- Bot response 修改以支持期望 & 评分流程 ---------- */
+function botRespond() {
+  if (stage === 0) {
+    createMsg('本店主打融合菜系，可选：川菜 / 粤菜 / 淮扬菜 / 素食等。您更偏好哪种口味呢？', 'bot');
+    stage = 1;
+    return;
+  }
+  if (stage === 1) {
+    createMsg('好的，我这边记录下来了～请问有没有忌口或不吃的食材呢？我来为您推荐合适的套餐哦！', 'bot');
+    stage = 2;
+    return;
+  }
+  if (stage === 2) {
+    // 进入“期望打分弹窗”
+    openExpectationModal();
+    return;
+  }
+  // 后面阶段不再通过 botRespond 触发
+}
+
+/* ---------- send message ---------- */
+async function sendMessage(){
+  const text = userInput.value.trim();
+  if(!text) return;
+
+  createMsg(text,'user');
+  userInput.value = '';
+  sendBtn.disabled = true;
+
+  // 记录用户消息（当前的 stage 表示这条 user message 发生时的阶段）
+  userMessages.push({ text, stage, ts: new Date().toISOString() });
+
+  setTimeout(()=>{
+    sendBtn.disabled = false;
+    botRespond();
+  }, 800);
+}
+
+/* ================== 期望打分弹窗相关（三个题） ================== */
+let expectationScore1 = null;
+let expectationScore2 = null;
+let expectationScore3 = null;
+
+function resetExpectationButtons(){
+  expectationScore1 = expectationScore2 = expectationScore3 = null;
+  [expectationRatingRow1, expectationRatingRow2, expectationRatingRow3].forEach(row=>{
+    Array.from(row.querySelectorAll('.rating-btn'))
+      .forEach(b => b.classList.remove('selected'));
+  });
+}
+
+function openExpectationModal(){
+  expectationModal.style.display = 'flex';
+  expectationModal.setAttribute('aria-hidden','false');
+  micBtn.disabled = true;
+  sendBtn.disabled = true;
+  resetExpectationButtons();
+}
+
+// 单独给三个行绑定点击
+function bindExpectationRow(row, index){
+  row.addEventListener('click', (e) => {
+    const btn = e.target.closest('.rating-btn');
+    if (!btn) return;
+    const score = btn.dataset.score;
+    if (index === 1) expectationScore1 = score;
+    if (index === 2) expectationScore2 = score;
+    if (index === 3) expectationScore3 = score;
+    Array.from(row.querySelectorAll('.rating-btn'))
+      .forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+  });
+}
+bindExpectationRow(expectationRatingRow1, 1);
+bindExpectationRow(expectationRatingRow2, 2);
+bindExpectationRow(expectationRatingRow3, 3);
+
+// 用户提交期望评分（3题必须都选）
+expectationSubmit.onclick = () => {
+  if (!expectationScore1 || !expectationScore2 || !expectationScore3) {
+    alert('请完成三个期望评分题目（1-7）后再提交。');
+    return;
+  }
+  // 记录三条期望（stage 3）
+  userMessages.push({
+    text: `期望_理解需求：${expectationScore1}`,
+    stage: 3,
+    ts: new Date().toISOString()
+  });
+  userMessages.push({
+    text: `期望_可靠性：${expectationScore2}`,
+    stage: 3,
+    ts: new Date().toISOString()
+  });
+  userMessages.push({
+    text: `期望_符合偏好：${expectationScore3}`,
+    stage: 3,
+    ts: new Date().toISOString()
+  });
+
+  closeExpectationModal();
+
+  // 服务失败结果 + 10 秒后再给满意度测量
+  setTimeout(()=> {
+    const failMsg = '很抱歉，我没能理解您的需求，期待下次为您更好的服务（请稍候几秒，完成满意度评价并查看对话代码后再关闭本页面）。';
+    createMsg(failMsg, 'bot');
+    userMessages.push({
+      text: '[BOT] ' + failMsg.replace(/<[^>]+>/g,''),
+      stage: 3,
+      ts: new Date().toISOString(),
+      from: 'bot'
+    });
+
+    // 10 秒后弹出满意度评分
+    setTimeout(()=> openRatingModal(), 10000);
+  }, 600);
+
+  stage = 3;
+};
+
+function closeExpectationModal(){
+  expectationModal.style.display = 'none';
+  expectationModal.setAttribute('aria-hidden','true');
+  micBtn.disabled = false;
+  sendBtn.disabled = false;
+}
+
+/* ================== 满意度评分弹窗相关 ================== */
+let currentScore = null;
+
+function openRatingModal(){
+  ratingModal.style.display = 'flex';
+  ratingModal.setAttribute('aria-hidden','false');
+  micBtn.disabled = true;
+  sendBtn.disabled = true;
+  // reset selection
+  currentScore = null;
+  Array.from(ratingRow.querySelectorAll('.rating-btn'))
+    .forEach(b => b.classList.remove('selected'));
+}
+
+ratingRow.addEventListener('click', (e) => {
+  const btn = e.target.closest('.rating-btn');
+  if (!btn) return;
+  currentScore = btn.dataset.score;
+  Array.from(ratingRow.querySelectorAll('.rating-btn'))
+    .forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+});
+
+ratingSubmit.onclick = () => {
+  if (!currentScore) {
+    alert('请选择一个满意度评分（1-7）再提交。');
+    return;
+  }
+  // 记录满意度（stage 4）
+  userMessages.push({
+    text: `满意度评分：${currentScore}`,
+    stage: 4,
+    ts: new Date().toISOString()
+  });
+
+  closeRatingModal();
+
+  // 提示接下来评服务表现 + 打开表现弹窗（不显示分数）
+  setTimeout(()=> {
+    const msg = '感谢您的评分，接下来请评价本次点餐助手的具体表现。';
+    createMsg(msg, 'bot');
+    userMessages.push({
+      text: '[BOT] ' + msg,
+      stage: 4,
+      ts: new Date().toISOString(),
+      from: 'bot'
+    });
+    setTimeout(()=> openPerformanceModal(), 800);
+  }, 400);
+
+  stage = 4;
+};
+
+function closeRatingModal(){
+  ratingModal.style.display = 'none';
+  ratingModal.setAttribute('aria-hidden','true');
+  micBtn.disabled = false;
+  sendBtn.disabled = false;
+}
+
+/* ================== 服务表现弹窗（三个题） ================== */
+let performanceScore1 = null;
+let performanceScore2 = null;
+let performanceScore3 = null;
+
+function resetPerformanceButtons(){
+  performanceScore1 = performanceScore2 = performanceScore3 = null;
+  [performanceRatingRow1, performanceRatingRow2, performanceRatingRow3].forEach(row=>{
+    Array.from(row.querySelectorAll('.rating-btn'))
+      .forEach(b => b.classList.remove('selected'));
+  });
+}
+
+function openPerformanceModal(){
+  performanceModal.style.display = 'flex';
+  performanceModal.setAttribute('aria-hidden','false');
+  micBtn.disabled = true;
+  sendBtn.disabled = true;
+  resetPerformanceButtons();
+}
+
+// 绑定三个表现行的点击
+function bindPerformanceRow(row, index){
+  row.addEventListener('click', (e) => {
+    const btn = e.target.closest('.rating-btn');
+    if (!btn) return;
+    const score = btn.dataset.score;
+    if (index === 1) performanceScore1 = score;
+    if (index === 2) performanceScore2 = score;
+    if (index === 3) performanceScore3 = score;
+    Array.from(row.querySelectorAll('.rating-btn'))
+      .forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+  });
+}
+bindPerformanceRow(performanceRatingRow1, 1);
+bindPerformanceRow(performanceRatingRow2, 2);
+bindPerformanceRow(performanceRatingRow3, 3);
+
+// 提交表现
+performanceSubmit.onclick = () => {
+  if (!performanceScore1 || !performanceScore2 || !performanceScore3) {
+    alert('请完成三个服务表现题目（1-7）后再提交。');
+    return;
+  }
+
+  // 记录三条表现（stage 5）
+  userMessages.push({
+    text: `表现_理解需求：${performanceScore1}`,
+    stage: 5,
+    ts: new Date().toISOString()
+  });
+  userMessages.push({
+    text: `表现_可靠性：${performanceScore2}`,
+    stage: 5,
+    ts: new Date().toISOString()
+  });
+  userMessages.push({
+    text: `表现_符合偏好：${performanceScore3}`,
+    stage: 5,
+    ts: new Date().toISOString()
+  });
+
+  closePerformanceModal();
+
+  // 最终结束语 + 服务代码 + 一次性上报（不展示任何分数）
+  setTimeout(()=> {
+    const finalMsg = `🎉 感谢您的所有反馈，本轮对话已结束，您的服务代码是 <b>${convoId}</b>，请返回问卷继续作答。`;
+    createMsg(finalMsg, 'bot');
+    userMessages.push({
+      text: '[BOT] ' + finalMsg.replace(/<[^>]+>/g,''),
+      stage: 5,
+      ts: new Date().toISOString(),
+      from: 'bot'
+    });
+
+    // 上传
+    submitAllMessagesOnce();
+    // 置为已结束
+    stage = 5;
+    micBtn.disabled = true;
+    sendBtn.disabled = true;
+  }, 600);
+};
+
+function closePerformanceModal(){
+  performanceModal.style.display = 'none';
+  performanceModal.setAttribute('aria-hidden','true');
+  micBtn.disabled = false;
+  sendBtn.disabled = false;
+}
+
+/* =========== 适配：如果用户直接触发 botRespond 到 stage=2（例如快速连续按） =========== */
+/* 保持原本 sendMessage / botRespond 流程；当 stage=2 时会自动弹期望窗口。 */
+
+</script>
+</body>
+</html>
+
+
